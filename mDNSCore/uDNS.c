@@ -4221,7 +4221,12 @@ mDNSexport void uDNS_CheckCurrentQuestion(mDNS *const m)
 				{
 				q->ThisQInterval = q->ThisQInterval * QuestionIntervalStep;	// Only increase interval if send succeeded
 				q->unansweredQueries++;
-				if (q->ThisQInterval > MAX_UCAST_RETRY_INTERVAL)	// SL fix: was MAX_UCAST_POLL_INTERVAL (1 hour)
+				if (q->ThisQInterval > MAX_UCAST_POLL_INTERVAL)
+					q->ThisQInterval = MAX_UCAST_POLL_INTERVAL;
+				// SL fix: cap unanswered plain queries at one minute. LLQ_Poll questions are excluded so that
+				// fallback LLQ polling keeps its ~15 minute schedule (LLQ_POLL_INTERVAL / QuestionIntervalStep,
+				// then multiplied by QuestionIntervalStep above).
+				if (q->state != LLQ_Poll && q->ThisQInterval > MAX_UCAST_RETRY_INTERVAL)
 					q->ThisQInterval = MAX_UCAST_RETRY_INTERVAL;
 				if (private && q->state != LLQ_Poll)
 					{

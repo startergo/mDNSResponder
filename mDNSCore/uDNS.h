@@ -34,6 +34,7 @@
 // Stock 258.21 lets it grow to MAX_UCAST_POLL_INTERVAL (one hour), and every new lookup
 // of the same name joins the backed-off question as a duplicate, so the name stays dead.
 // Answered questions are unaffected: they are driven by the cache (MaxQuestionInterval).
+// LLQ_Poll questions are also excluded and keep their LLQ_POLL_INTERVAL schedule.
 #define MAX_UCAST_RETRY_INTERVAL (60 * mDNSPlatformOneSecond)
 #define LLQ_POLL_INTERVAL       (15 * 60 * mDNSPlatformOneSecond) // Polling interval for zones w/ an advertised LLQ port (ie not static zones) if LLQ fails due to NAT, etc.
 #define RESPONSE_WINDOW (60 * mDNSPlatformOneSecond)         // require server responses within one minute of request
