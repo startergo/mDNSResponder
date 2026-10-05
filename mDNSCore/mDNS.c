@@ -4020,14 +4020,25 @@ mDNSlocal void ActivateUnicastQuery(mDNS *const m, DNSQuestion *const question, 
 // Caller must hold the lock
 mDNSlocal void ReviveStuckUnicastQuestion(mDNS *const m, DNSQuestion *const q, const char *const why)
 	{
-	DNSQuestion *qptr;
-	if (!q->qDNSServer)
+	// A question whose server was disabled (its interface went away, see mDNS_DeregisterInterface) was
+	// deliberately parked by uDNS_CheckCurrentQuestion. Reviving it with that server would just re-enter
+	// the disabled-server path and deliver another transient negative answer, so pick a usable resolver
+	// first. GetBestServer only skips servers marked for deletion, not disabled ones, so skip those here.
+	if (!q->qDNSServer || q->qDNSServer->teststate == DNSServer_Disabled)
 		{
 		DNSServer *s;
+		const mDNSOpaque64 savedValid = q->validDNSServers;
 		SetValidDNSServers(m, q);
-		s = GetServerForQuestion(m, q);
-		if (!s) return;		// No DNS server at all; the next DNS configuration change will pick it up (t != s path)
-		DNSServerChangeForQuestion(m, q, s);
+		do s = GetServerForQuestion(m, q);	// clears each returned server's bit, so this terminates
+		while (s && s->teststate == DNSServer_Disabled);
+		if (!s)
+			{
+			// No usable DNS server; leave the question as it was. The next DNS configuration change
+			// will reactivate it (t != s path in uDNS_SetupDNSConfig).
+			q->validDNSServers = savedValid;
+			return;
+			}
+		DNSServerChangeForQuestion(m, q, s);	// also updates qDNSServer/validDNSServers on duplicates
 		}
 	LogInfo("ReviveStuckUnicastQuestion (%s): %##s (%s) ThisQInterval %d unanswered %d noServerResponse %d triedAll %d DNS server %#a:%d",
 		why, q->qname.c, DNSTypeName(q->qtype), q->ThisQInterval, q->unansweredQueries, q->noServerResponse,
@@ -4036,8 +4047,6 @@ mDNSlocal void ReviveStuckUnicastQuestion(mDNS *const m, DNSQuestion *const q, c
 	q->noServerResponse    = 0;
 	q->triedAllServersOnce = 0;
 	ActivateUnicastQuery(m, q, mDNStrue);
-	for (qptr = q->next; qptr; qptr = qptr->next)
-		if (qptr->DuplicateOf == q) { qptr->validDNSServers = q->validDNSServers; qptr->qDNSServer = q->qDNSServer; }
 	}
 
 mDNSexport void mDNSCoreRestartQueries(mDNS *const m)
