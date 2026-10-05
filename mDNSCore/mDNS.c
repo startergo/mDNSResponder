@@ -4007,6 +4007,39 @@ mDNSlocal void ActivateUnicastQuery(mDNS *const m, DNSQuestion *const question, 
 		}
 	}
 
+// SL fix: a plain unicast DNS question (not Bonjour, not wide-area LLQ/private, not scoped to one
+// interface) that has not been answered and is either deactivated or retrying without replies.
+// Stock 258.21 never revives these when the network comes back with the same DNS server, and
+// duplicate questions inherit their state, so names stay unresolvable until mDNSResponder restarts.
+#define UnicastQuestionStuck(Q) (!mDNSOpaque16IsZero((Q)->TargetQID) && !(Q)->DuplicateOf &&                  \
+	!(Q)->LongLived && !PrivateQuery(Q) && !QuerySuppressed(Q) &&                                               \
+	((Q)->InterfaceID == mDNSInterface_Any || (Q)->InterfaceID == mDNSInterface_Unicast) &&                     \
+	(Q)->ThisQInterval != MaxQuestionInterval &&                                                                \
+	((Q)->ThisQInterval == 0 || (Q)->unansweredQueries || (Q)->noServerResponse || (Q)->triedAllServersOnce))
+
+// Caller must hold the lock
+mDNSlocal void ReviveStuckUnicastQuestion(mDNS *const m, DNSQuestion *const q, const char *const why)
+	{
+	DNSQuestion *qptr;
+	if (!q->qDNSServer)
+		{
+		DNSServer *s;
+		SetValidDNSServers(m, q);
+		s = GetServerForQuestion(m, q);
+		if (!s) return;		// No DNS server at all; the next DNS configuration change will pick it up (t != s path)
+		DNSServerChangeForQuestion(m, q, s);
+		}
+	LogInfo("ReviveStuckUnicastQuestion (%s): %##s (%s) ThisQInterval %d unanswered %d noServerResponse %d triedAll %d DNS server %#a:%d",
+		why, q->qname.c, DNSTypeName(q->qtype), q->ThisQInterval, q->unansweredQueries, q->noServerResponse,
+		q->triedAllServersOnce, &q->qDNSServer->addr, mDNSVal16(q->qDNSServer->port));
+	q->unansweredQueries   = 0;
+	q->noServerResponse    = 0;
+	q->triedAllServersOnce = 0;
+	ActivateUnicastQuery(m, q, mDNStrue);
+	for (qptr = q->next; qptr; qptr = qptr->next)
+		if (qptr->DuplicateOf == q) { qptr->validDNSServers = q->validDNSServers; qptr->qDNSServer = q->qDNSServer; }
+	}
+
 mDNSexport void mDNSCoreRestartQueries(mDNS *const m)
 	{
 	DNSQuestion *q;
@@ -4021,7 +4054,8 @@ mDNSexport void mDNSCoreRestartQueries(mDNS *const m)
 		{
 		q = m->CurrentQuestion;
 		m->CurrentQuestion = m->CurrentQuestion->next;
-		if (!mDNSOpaque16IsZero(q->TargetQID) && ActiveQuestion(q)) ActivateUnicastQuery(m, q, mDNStrue);
+		if (UnicastQuestionStuck(q)) ReviveStuckUnicastQuestion(m, q, "restart");	// SL fix: includes ThisQInterval == 0
+		else if (!mDNSOpaque16IsZero(q->TargetQID) && ActiveQuestion(q)) ActivateUnicastQuery(m, q, mDNStrue);
 		}
 #endif
 
@@ -6885,6 +6919,9 @@ mDNSlocal void UpdateQuestionDuplicates(mDNS *const m, DNSQuestion *const questi
 					}
 
 				SetNextQueryTime(m,q);
+
+				// SL fix: don't let a stuck question's backoff (or ThisQInterval == 0) live on in its successor
+				if (UnicastQuestionStuck(q)) ReviveStuckUnicastQuestion(m, q, "promoted");
 				}
 	}
 
@@ -10051,6 +10088,9 @@ mDNSexport mStatus uDNS_SetupDNSConfig(mDNS *const m)
 				{
 				debugf("uDNS_SetupDNSConfig: Not Updating DNS server question %p %##s (%s) DNS server %#a:%d %p %d",
 					q, q->qname.c, DNSTypeName(q->qtype), t ? &t->addr : mDNSNULL, mDNSVal16(t ? t->port : zeroIPPort), q->DuplicateOf, q->SuppressUnusable);
+				// SL fix: the network changed but resolved to the same DNS server object. Stock code leaves
+				// unanswered questions in their (up to one hour) backoff or deactivated; kick them instead.
+				if (UnicastQuestionStuck(q)) ReviveStuckUnicastQuestion(m, q, "dnsconfig");
 				for (qptr = q->next ; qptr; qptr = qptr->next)
 					if (qptr->DuplicateOf == q) { qptr->validDNSServers = q->validDNSServers; qptr->qDNSServer = q->qDNSServer; }
 				}

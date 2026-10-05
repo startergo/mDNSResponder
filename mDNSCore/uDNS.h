@@ -30,6 +30,11 @@
 	                                                         // which typically heal quickly, so we start agressively and exponentially back off
 #define MAX_UCAST_POLL_INTERVAL (60 * 60 * mDNSPlatformOneSecond)
 //#define MAX_UCAST_POLL_INTERVAL (1 * 60 * mDNSPlatformOneSecond)
+// SL fix: cap the exponential backoff of *unanswered* unicast queries at one minute.
+// Stock 258.21 lets it grow to MAX_UCAST_POLL_INTERVAL (one hour), and every new lookup
+// of the same name joins the backed-off question as a duplicate, so the name stays dead.
+// Answered questions are unaffected: they are driven by the cache (MaxQuestionInterval).
+#define MAX_UCAST_RETRY_INTERVAL (60 * mDNSPlatformOneSecond)
 #define LLQ_POLL_INTERVAL       (15 * 60 * mDNSPlatformOneSecond) // Polling interval for zones w/ an advertised LLQ port (ie not static zones) if LLQ fails due to NAT, etc.
 #define RESPONSE_WINDOW (60 * mDNSPlatformOneSecond)         // require server responses within one minute of request
 #define MAX_UCAST_UNANSWERED_QUERIES 2                       // the number of unanswered queries from any one uDNS server before trying another server

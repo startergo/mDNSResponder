@@ -4221,8 +4221,8 @@ mDNSexport void uDNS_CheckCurrentQuestion(mDNS *const m)
 				{
 				q->ThisQInterval = q->ThisQInterval * QuestionIntervalStep;	// Only increase interval if send succeeded
 				q->unansweredQueries++;
-				if (q->ThisQInterval > MAX_UCAST_POLL_INTERVAL)
-					q->ThisQInterval = MAX_UCAST_POLL_INTERVAL;
+				if (q->ThisQInterval > MAX_UCAST_RETRY_INTERVAL)	// SL fix: was MAX_UCAST_POLL_INTERVAL (1 hour)
+					q->ThisQInterval = MAX_UCAST_RETRY_INTERVAL;
 				if (private && q->state != LLQ_Poll)
 					{
 					// We don't want to retransmit too soon. Hence, we always schedule our first
